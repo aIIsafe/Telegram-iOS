@@ -24,22 +24,22 @@ jobs:
           git submodule update --init --recursive --depth 1
         timeout-minutes: 30
 
-      - name: Install Bazel + Python deps
+      - name: Install Bazel 7.3.1 + deps
         run: |
           brew install bazelisk
+          echo "7.3.1" > .bazelversion
           pip3 install pillow --break-system-packages
           bazel --version && xcodebuild -version
-          echo "=== .bazelrc проверка ==="
-          grep -i swiftcopt .bazelrc || echo "swiftcopt не найден — OK"
+          grep -i swiftcopt .bazelrc || echo "swiftcopt OK"
 
-      - name: Создаём конфигурацию + генерируем проект
+      - name: Собираем IPA через Make.py build
         run: |
           cat > build-configuration.json << 'CONFIG'
           {
-            "bundle_id": "org.anygram.Telegram",
+            "bundle_id": "ph.telegra.Telegraph",
             "api_id": "24053256",
             "api_hash": "bc8984a70877b5768a5a6a80222da985",
-            "team_id": "XXXXXXXXXX",
+            "team_id": "C67CF9S4VU",
             "app_center_id": "0",
             "is_internal_build": "true",
             "is_appstore_build": "false",
@@ -53,49 +53,32 @@ jobs:
           python3 build-system/Make/Make.py \
             --cacheDir="$HOME/telegram-bazel-cache" \
             --overrideXcodeVersion \
-            generateProject \
+            --overrideBazelVersion \
+            build \
             --configurationPath=build-configuration.json \
-            --xcodeManagedCodesigning
-        timeout-minutes: 60
-
-      - name: Собираем IPA через Bazel (из корня проекта)
-        run: |
-          # Собираем из корня проекта — build-input создан Make.py generateProject
-          ls build-input/configuration-repository/ || echo "configuration-repository не найден"
-          bazel build //Telegram:Telegram \
-            --ios_multi_cpus=arm64 \
-            -c opt \
-            --override_repository=build_configuration=build-input/configuration-repository \
-            --define=buildNumber=1 \
-            2>&1 | tail -100
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber=1 \
+            --outputBuildArtifactsPath=build-output
+          ls -lh build-output/ || true
         timeout-minutes: 150
-        continue-on-error: true
 
-      - name: Ищем и упаковываем IPA
+      - name: Упаковываем AnyGram.ipa
         run: |
-          echo "=== Все IPA и APP ==="
-          find . -name "*.ipa" 2>/dev/null | grep -v ".noindex" | head -10 || true
-          find . -name "Telegram.app" -type d 2>/dev/null | grep -v ".noindex" | head -5 || true
-          
-          IPA=$(find . -name "*.ipa" 2>/dev/null | grep -v ".noindex" | head -1)
-          if [ -n "$IPA" ]; then
-            cp "$IPA" AnyGram.ipa && ls -lh AnyGram.ipa && echo "✅ IPA найден!"
+          if [ -f build-output/Telegram.ipa ]; then
+            cp build-output/Telegram.ipa AnyGram.ipa
+            ls -lh AnyGram.ipa
+            echo "✅ IPA готов"
           else
-            APP=$(find . -name "Telegram.app" -type d 2>/dev/null | grep -v ".noindex" | head -1)
-            if [ -n "$APP" ]; then
-              mkdir -p Payload && cp -r "$APP" Payload/
-              zip -r AnyGram.ipa Payload/ && ls -lh AnyGram.ipa && echo "✅ IPA создан из .app"
-            else
-              echo "❌ Артефакт не найден"
-            fi
+            echo "❌ Telegram.ipa не найден"
+            find . -name "*.ipa" 2>/dev/null | head -10 || true
+            exit 1
           fi
-        continue-on-error: true
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: AnyGram-iOS
-          path: "*.ipa"
+          path: AnyGram.ipa
           retention-days: 30
-          if-no-files-found: warn
-        if: always()
+          if-no-files-found: error
