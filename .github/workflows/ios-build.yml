@@ -11,14 +11,14 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Checkout layer-191 (Xcode 16 совместимый)
+      - name: Checkout layer-191
         uses: actions/checkout@v4
         with:
           ref: layer-191
           submodules: false
           fetch-depth: 1
 
-      - name: Инициализируем субмодули из оригинального репо
+      - name: Инициализируем субмодули
         run: |
           git config --global url."https://github.com/TelegramMessenger/".insteadOf "https://github.com/aIIsafe/"
           git submodule update --init --recursive --depth 1
@@ -28,8 +28,7 @@ jobs:
         run: |
           brew install bazelisk
           pip3 install pillow --break-system-packages
-          bazel --version
-          xcodebuild -version
+          bazel --version && xcodebuild -version
 
       - name: Создаём конфигурацию сборки
         run: |
@@ -57,11 +56,10 @@ jobs:
             --overrideXcodeVersion \
             generateProject \
             --configurationPath=build-configuration.json \
-            --xcodeManagedCodesigning \
-            --disableProvisioningProfiles
+            --xcodeManagedCodesigning
         timeout-minutes: 60
 
-      - name: Собираем IPA (no codesign)
+      - name: Собираем IPA (fake codesigning)
         run: |
           python3 build-system/Make/Make.py \
             --cacheDir="$HOME/telegram-bazel-cache" \
@@ -70,24 +68,29 @@ jobs:
             --configurationPath=build-configuration.json \
             --codesigningInformationPath=build-system/fake-codesigning \
             --buildNumber=1 \
-            --configuration=release_arm64 \
-            --disableProvisioningProfiles 2>&1 | tail -150
+            --configuration=release_arm64 2>&1 | tail -150
         timeout-minutes: 150
         continue-on-error: true
 
       - name: Ищем и упаковываем IPA
         run: |
+          echo "=== Поиск IPA и APP ==="
+          find . "$HOME/telegram-bazel-cache" -name "*.ipa" 2>/dev/null | head -10 || true
+          find . "$HOME/telegram-bazel-cache" -name "Telegram.app" -type d 2>/dev/null | head -5 || true
+          find "$HOME/telegram-bazel-cache" -name "*.ipa" 2>/dev/null | head -5 || true
+          
           IPA=$(find . "$HOME/telegram-bazel-cache" -name "*.ipa" 2>/dev/null | head -1)
           if [ -n "$IPA" ]; then
-            cp "$IPA" AnyGram.ipa && echo "IPA найден: $IPA"
+            cp "$IPA" AnyGram.ipa && echo "✅ IPA найден: $IPA"
           else
             APP=$(find . "$HOME/telegram-bazel-cache" -name "Telegram.app" -type d 2>/dev/null | head -1)
             if [ -n "$APP" ]; then
               mkdir -p Payload && cp -r "$APP" Payload/
-              zip -r AnyGram.ipa Payload/ && echo "IPA создан из .app"
+              zip -r AnyGram.ipa Payload/ && echo "✅ IPA создан из .app: $APP"
             else
-              echo "Артефакт не найден"
-              find . -name "*.app" 2>/dev/null | head -5 || true
+              echo "❌ Артефакт не найден — показываю структуру кэша:"
+              ls "$HOME/telegram-bazel-cache" 2>/dev/null || true
+              find "$HOME/telegram-bazel-cache" -maxdepth 4 -name "*.app" 2>/dev/null || true
             fi
           fi
         continue-on-error: true
@@ -98,4 +101,5 @@ jobs:
           name: AnyGram-iOS
           path: "*.ipa"
           retention-days: 30
+          if-no-files-found: warn
         if: always()
