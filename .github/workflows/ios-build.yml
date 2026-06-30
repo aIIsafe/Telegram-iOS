@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Checkout (без субмодулей)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: false
@@ -31,7 +31,8 @@ jobs:
       - name: Install Bazel + Python deps
         run: |
           brew install bazelisk
-          pip3 install pillow
+          pip3 install pillow --break-system-packages
+          bazel --version
 
       - name: Создаём конфигурацию сборки
         run: |
@@ -51,7 +52,6 @@ jobs:
             "enable_icloud": false
           }
           CONFIG
-          cat build-configuration.json
 
       - name: Генерируем Xcode проект
         run: |
@@ -62,7 +62,6 @@ jobs:
             --xcodeManagedCodesigning \
             --disableProvisioningProfiles
         timeout-minutes: 60
-        continue-on-error: false
 
       - name: Собираем IPA (no codesign)
         run: |
@@ -73,31 +72,25 @@ jobs:
             --codesigningInformationPath=build-system/fake-codesigning \
             --buildNumber=1 \
             --configuration=release_arm64 \
-            --disableProvisioningProfiles 2>&1 | tail -100
+            --disableProvisioningProfiles 2>&1 | tail -150
         timeout-minutes: 150
         continue-on-error: true
 
       - name: Ищем и упаковываем IPA
         run: |
-          echo "=== Поиск артефактов ==="
-          find . -name "*.ipa" 2>/dev/null || echo "IPA не найден"
-          find . -name "Telegram.app" -type d 2>/dev/null | head -5 || echo "APP не найден"
-          find $HOME/telegram-bazel-cache -name "*.ipa" 2>/dev/null | head -5 || true
-          
-          # Пробуем найти IPA в разных местах
-          IPA=$(find . $HOME/telegram-bazel-cache -name "*.ipa" 2>/dev/null | head -1)
+          IPA=$(find . "$HOME/telegram-bazel-cache" -name "*.ipa" 2>/dev/null | head -1)
           if [ -n "$IPA" ]; then
             cp "$IPA" AnyGram.ipa
-            echo "IPA найден и скопирован: $IPA"
+            echo "IPA найден: $IPA"
           else
-            APP=$(find . $HOME/telegram-bazel-cache -name "Telegram.app" -type d 2>/dev/null | head -1)
+            APP=$(find . "$HOME/telegram-bazel-cache" -name "Telegram.app" -type d 2>/dev/null | head -1)
             if [ -n "$APP" ]; then
-              mkdir -p Payload
-              cp -r "$APP" Payload/
+              mkdir -p Payload && cp -r "$APP" Payload/
               zip -r AnyGram.ipa Payload/
               echo "IPA создан из .app"
             else
-              echo "Ни IPA ни .app не найден"
+              echo "Артефакт не найден"
+              find . -name "*.app" -o -name "*.ipa" 2>/dev/null | head -10 || true
             fi
           fi
         continue-on-error: true
