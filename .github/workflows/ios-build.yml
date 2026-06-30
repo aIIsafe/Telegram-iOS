@@ -2,7 +2,7 @@ name: iOS Build (AnyGram)
 
 on:
   push:
-    branches: [master, layer-191]
+    branches: [master]
   workflow_dispatch:
 
 jobs:
@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Checkout layer-191
+      - name: Checkout layer-191 (patched)
         uses: actions/checkout@v4
         with:
           ref: layer-191
@@ -29,8 +29,10 @@ jobs:
           brew install bazelisk
           pip3 install pillow --break-system-packages
           bazel --version && xcodebuild -version
+          echo "=== .bazelrc проверка ==="
+          grep -i swiftcopt .bazelrc || echo "swiftcopt не найден — OK"
 
-      - name: Создаём конфигурацию сборки
+      - name: Создаём конфигурацию + генерируем проект
         run: |
           cat > build-configuration.json << 'CONFIG'
           {
@@ -48,18 +50,18 @@ jobs:
             "enable_icloud": false
           }
           CONFIG
-
-      - name: Генерируем Xcode проект + собираем IPA через Make.py
-        run: |
-          # Сначала генерируем проект
           python3 build-system/Make/Make.py \
             --cacheDir="$HOME/telegram-bazel-cache" \
             --overrideXcodeVersion \
             generateProject \
             --configurationPath=build-configuration.json \
             --xcodeManagedCodesigning
-          
-          # Собираем IPA через Bazel напрямую (Make.py уже настроил конфигурацию)
+        timeout-minutes: 60
+
+      - name: Собираем IPA через Bazel (из корня проекта)
+        run: |
+          # Собираем из корня проекта — build-input создан Make.py generateProject
+          ls build-input/configuration-repository/ || echo "configuration-repository не найден"
           bazel build //Telegram:Telegram \
             --ios_multi_cpus=arm64 \
             -c opt \
@@ -71,20 +73,20 @@ jobs:
 
       - name: Ищем и упаковываем IPA
         run: |
-          echo "=== Поиск артефактов ==="
+          echo "=== Все IPA и APP ==="
           find . -name "*.ipa" 2>/dev/null | grep -v ".noindex" | head -10 || true
           find . -name "Telegram.app" -type d 2>/dev/null | grep -v ".noindex" | head -5 || true
           
           IPA=$(find . -name "*.ipa" 2>/dev/null | grep -v ".noindex" | head -1)
           if [ -n "$IPA" ]; then
-            cp "$IPA" AnyGram.ipa && echo "✅ IPA найден: $IPA" && ls -lh AnyGram.ipa
+            cp "$IPA" AnyGram.ipa && ls -lh AnyGram.ipa && echo "✅ IPA найден!"
           else
             APP=$(find . -name "Telegram.app" -type d 2>/dev/null | grep -v ".noindex" | head -1)
             if [ -n "$APP" ]; then
               mkdir -p Payload && cp -r "$APP" Payload/
-              zip -r AnyGram.ipa Payload/ && echo "✅ IPA создан!" && ls -lh AnyGram.ipa
+              zip -r AnyGram.ipa Payload/ && ls -lh AnyGram.ipa && echo "✅ IPA создан из .app"
             else
-              echo "❌ Нет IPA и .app"
+              echo "❌ Артефакт не найден"
             fi
           fi
         continue-on-error: true
