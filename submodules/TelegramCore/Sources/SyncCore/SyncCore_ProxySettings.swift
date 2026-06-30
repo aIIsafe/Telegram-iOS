@@ -78,7 +78,21 @@ public struct ProxySettings: Codable, Equatable {
     public var useForCalls: Bool
     
     public static var defaultSettings: ProxySettings {
-        return ProxySettings(enabled: false, servers: [], activeServer: nil, useForCalls: false)
+        // Встроенный MTProto-прокси — включается автоматически при первом запуске
+        let secretHex = "ee012c78136de96da97a3b0c9b5dc635fd6966636f6e6669672e6d65"
+        var secretBytes = [UInt8]()
+        var idx = secretHex.startIndex
+        while idx < secretHex.endIndex {
+            let next = secretHex.index(idx, offsetBy: 2)
+            secretBytes.append(UInt8(secretHex[idx..<next], radix: 16) ?? 0)
+            idx = next
+        }
+        let proxy = ProxyServerSettings(
+            host: "78.17.154.32",
+            port: 443,
+            connection: .mtp(secret: Data(secretBytes))
+        )
+        return ProxySettings(enabled: true, servers: [proxy], activeServer: proxy, useForCalls: true)
     }
     
     public init(enabled: Bool, servers: [ProxyServerSettings], activeServer: ProxyServerSettings?, useForCalls: Bool) {
