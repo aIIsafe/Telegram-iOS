@@ -1,0 +1,57 @@
+name: iOS Build (AnyGram)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install Bazel
+        run: brew install bazelisk && bazel --version
+
+      - name: Build iOS (no codesign)
+        run: |
+          cd Telegram
+          bazel build Telegram \
+            --ios_multi_cpus=arm64 \
+            --config=release_arm64 \
+            2>&1 | tail -100
+        continue-on-error: true
+
+      - name: Package IPA
+        run: |
+          APP=$(find . -name "Telegram.app" -type d 2>/dev/null | head -1)
+          if [ -n "$APP" ]; then
+            mkdir -p Payload
+            cp -r "$APP" Payload/
+            zip -r AnyGram.ipa Payload/
+            echo "IPA создан: AnyGram.ipa"
+          else
+            echo "Файл .app не найден, ищем артефакты..."
+            find . -name "*.app" -type d 2>/dev/null || true
+          fi
+        continue-on-error: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyGram-iOS
+          path: "*.ipa"
+          retention-days: 30
+        if: always()
