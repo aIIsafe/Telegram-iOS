@@ -23,18 +23,12 @@ jobs:
           git submodule update --init --recursive --depth 1
         timeout-minutes: 30
 
-      - name: Setup Xcode
-        run: |
-          # Смотрим доступные версии Xcode
-          ls /Applications/ | grep Xcode || true
-          xcode-select -p
-          xcodebuild -version || true
-
       - name: Install Bazel + Python deps
         run: |
           brew install bazelisk
           pip3 install pillow --break-system-packages
           bazel --version
+          xcodebuild -version
 
       - name: Создаём конфигурацию сборки
         run: |
@@ -57,30 +51,26 @@ jobs:
 
       - name: Генерируем Xcode проект
         run: |
-          # Получаем реальную версию Xcode и переопределяем проверку
-          XCODE_VER=$(xcodebuild -version | head -1 | awk '{print $2}')
-          echo "Версия Xcode: $XCODE_VER"
           python3 build-system/Make/Make.py \
             --cacheDir="$HOME/telegram-bazel-cache" \
+            --overrideXcodeVersion \
             generateProject \
             --configurationPath=build-configuration.json \
             --xcodeManagedCodesigning \
-            --disableProvisioningProfiles \
-            --overrideXcodeVersion=26.2
+            --disableProvisioningProfiles
         timeout-minutes: 60
-        continue-on-error: false
 
       - name: Собираем IPA (no codesign)
         run: |
           python3 build-system/Make/Make.py \
             --cacheDir="$HOME/telegram-bazel-cache" \
+            --overrideXcodeVersion \
             build \
             --configurationPath=build-configuration.json \
             --codesigningInformationPath=build-system/fake-codesigning \
             --buildNumber=1 \
             --configuration=release_arm64 \
-            --disableProvisioningProfiles \
-            --overrideXcodeVersion=26.2 2>&1 | tail -150
+            --disableProvisioningProfiles 2>&1 | tail -150
         timeout-minutes: 150
         continue-on-error: true
 
@@ -96,7 +86,6 @@ jobs:
               zip -r AnyGram.ipa Payload/ && echo "IPA создан из .app"
             else
               echo "Артефакт не найден"
-              find . -name "*.app" 2>/dev/null | head -5 || true
             fi
           fi
         continue-on-error: true
