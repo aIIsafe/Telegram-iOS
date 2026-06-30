@@ -2,7 +2,7 @@ name: iOS Build (AnyGram)
 
 on:
   push:
-    branches: [master]
+    branches: [master, layer-191]
   workflow_dispatch:
 
 jobs:
@@ -11,9 +11,10 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Checkout
+      - name: Checkout layer-191 (Xcode 16 совместимый)
         uses: actions/checkout@v4
         with:
+          ref: layer-191
           submodules: false
           fetch-depth: 1
 
@@ -86,6 +87,7 @@ jobs:
               zip -r AnyGram.ipa Payload/ && echo "IPA создан из .app"
             else
               echo "Артефакт не найден"
+              find . -name "*.app" 2>/dev/null | head -5 || true
             fi
           fi
         continue-on-error: true
